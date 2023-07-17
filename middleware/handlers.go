@@ -68,7 +68,6 @@ func GetProduct(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 		json.NewEncoder(w).Encode(product)
 	}
-
 }
 func CreateProduct(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -77,9 +76,6 @@ func CreateProduct(w http.ResponseWriter, r *http.Request) {
 	if error != nil {
 		log.Fatalf("unable to decode request body %v", error)
 	}
-	if error != nil {
-		log.Fatalf("unable to check if product exists %v", error)
-	}
 	if product.ProductId != 0 {
 		res := response{
 			ID:      400,
@@ -87,7 +83,6 @@ func CreateProduct(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(400)
 		json.NewEncoder(w).Encode(res)
-		return
 	} else {
 		categoryExisting, error := getCategory(int64(product.Category.Id))
 		if error != nil {
@@ -135,7 +130,6 @@ func DeleteProduct(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 		json.NewEncoder(w).Encode(res)
 	}
-
 }
 func UpdateProduct(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -192,7 +186,6 @@ func UpdateProduct(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(res)
 		}
 	}
-
 }
 func GetCategories(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -225,7 +218,6 @@ func GetCategory(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 		json.NewEncoder(w).Encode(category)
 	}
-
 }
 func CreateCategory(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -278,7 +270,6 @@ func DeleteCategory(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 		json.NewEncoder(w).Encode(res)
 	}
-
 }
 func UpdateCategory(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -321,7 +312,6 @@ func UpdateCategory(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 		json.NewEncoder(w).Encode(res)
 	}
-
 }
 func getProducts() ([]models.Product, error) {
 	db := createConnection()
@@ -369,7 +359,6 @@ func getProduct(id int64) (models.Product, error) {
 		log.Fatalf("unable to scan rows %v", error)
 	}
 	return product, error
-
 }
 func createProduct(product models.Product) int64 {
 	db := createConnection()
@@ -449,7 +438,6 @@ func getCategory(id int64) (models.Category, error) {
 		log.Fatalf("unable to scan rows %v", error)
 	}
 	return category, error
-
 }
 func createCategory(category models.Category) int64 {
 	db := createConnection()
