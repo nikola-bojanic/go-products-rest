@@ -9,11 +9,14 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type response struct {
@@ -226,9 +229,6 @@ func CreateCategory(w http.ResponseWriter, r *http.Request) {
 	if error != nil {
 		log.Fatalf("unable to decode request body %v", error)
 	}
-	if error != nil {
-		log.Fatalf("unable to check if category exists %v", error)
-	}
 	if category.Id != 0 {
 		res := response{
 			ID:      400,
@@ -312,6 +312,175 @@ func UpdateCategory(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 		json.NewEncoder(w).Encode(res)
 	}
+}
+func UpdateUser(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	params := mux.Vars(r)
+	id, error := strconv.Atoi(params["id"])
+	if error != nil {
+		log.Fatalf("unable to parse id %v", error)
+	}
+	var req models.UpdateRequest
+	if error := json.NewDecoder(r.Body).Decode(&req); error != nil {
+		log.Fatalf("unable to decode request body %v", error)
+	}
+	exists, error := getUserById(int64(id))
+	if error != nil {
+		log.Fatalf("unable to fetch user %v", error)
+	}
+	if exists.Id == 0 {
+		res := response{
+			ID:      404,
+			Message: "user with that ID doesn't exist",
+		}
+		w.WriteHeader(404)
+		json.NewEncoder(w).Encode(res)
+	} else {
+		rows := updateUser(int64(id), req)
+		msg := fmt.Sprintf("user successfully updated, rows affected %v", rows)
+		res := response{
+			ID:      int64(id),
+			Message: msg,
+		}
+		w.WriteHeader(200)
+		json.NewEncoder(w).Encode(res)
+	}
+
+}
+func UserLogin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req models.LoginRequest
+	if error := json.NewDecoder(r.Body).Decode(&req); error != nil {
+		log.Fatalf("unable to decode request body %v", error)
+	}
+	user, error := getUserByEmail(req.Email)
+	if error != nil {
+		log.Fatalf("unable to fetch user by email %v", error)
+	}
+	if user.Email != req.Email || !validPassword(user.Password, req.Password) {
+		res := response{
+			ID:      400,
+			Message: "email or password are incorrect",
+		}
+		fmt.Printf("%s", user.Password)
+		w.WriteHeader(400)
+		json.NewEncoder(w).Encode(res)
+	} else {
+		token, err := createJwt(user)
+		if error != nil {
+			log.Fatalf("unable to generate jwt %v", err)
+		}
+		res := models.LoginResponse{
+			Token: token,
+		}
+		w.WriteHeader(200)
+		json.NewEncoder(w).Encode(res)
+	}
+
+}
+func UserRegister(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var user models.User
+	if error := json.NewDecoder(r.Body).Decode(&user); error != nil {
+		log.Fatalf("unable to decode request body %v", error)
+	}
+	if user.Id != 0 {
+		res := response{
+			ID:      400,
+			Message: "creating users with existing ID's not allowed",
+		}
+		w.WriteHeader(400)
+		json.NewEncoder(w).Encode(res)
+	} else if !validEmail(user.Email) {
+		w.WriteHeader(400)
+		res := response{
+			ID:      400,
+			Message: "email not valid",
+		}
+		json.NewEncoder(w).Encode(res)
+	} else if existing, _ := getUserByEmail(user.Email); existing.Id != 0 {
+		w.WriteHeader(400)
+		res := response{
+			ID:      400,
+			Message: "user already exists",
+		}
+		json.NewEncoder(w).Encode(res)
+	} else if len(user.Password) < 1 {
+		w.WriteHeader(400)
+		res := response{
+			ID:      400,
+			Message: "password too short",
+		}
+		json.NewEncoder(w).Encode(res)
+	} else {
+		id := createUser(user)
+		res := response{
+			ID:      id,
+			Message: "registration successful",
+		}
+		json.NewEncoder(w).Encode(res)
+	}
+}
+
+func createUser(user models.User) int64 {
+	db := createConnection()
+	defer db.Close()
+	sqlStatement := `INSERT INTO users (first_name, last_name, email, password) VALUES ($1, $2, $3, $4) RETURNING id`
+	var id int64
+	encPw, _ := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	if error := db.QueryRow(sqlStatement, user.FirstName, user.LastName, user.Email, string(encPw)).Scan(&id); error != nil {
+		log.Fatalf("unable to execute the query %v", error)
+	}
+	return id
+}
+func getUserById(id int64) (models.User, error) {
+	db := createConnection()
+	defer db.Close()
+	var user models.User
+	sqlStatement := `SELECT * FROM users WHERE id = $1`
+	row := db.QueryRow(sqlStatement, id)
+	error := row.Scan(&user.Id, &user.FirstName, &user.LastName, &user.Email, &user.Password, &user.CreatedAt)
+	switch error {
+	case sql.ErrNoRows:
+		return user, nil
+	case nil:
+		return user, nil
+	default:
+		log.Fatalf("unable to scan the rows %v", error)
+	}
+	return user, error
+}
+func getUserByEmail(email string) (models.User, error) {
+	db := createConnection()
+	defer db.Close()
+	var user models.User
+	sqlStatement := `SELECT * FROM users WHERE email = $1`
+	row := db.QueryRow(sqlStatement, email)
+	error := row.Scan(&user.Id, &user.FirstName, &user.LastName, &user.Email, &user.Password, &user.CreatedAt)
+	switch error {
+	case sql.ErrNoRows:
+		return user, nil
+	case nil:
+		return user, nil
+	default:
+		log.Fatalf("unable to scan the rows %v", error)
+	}
+	return user, error
+}
+func updateUser(id int64, req models.UpdateRequest) int64 {
+	db := createConnection()
+	defer db.Close()
+	sqlStatement := `UPDATE users SET first_name = $2, last_name = $3 WHERE id = $1`
+	res, error := db.Exec(sqlStatement, id, req.FirstName, req.LastName)
+	if error != nil {
+		log.Fatalf("unable to execute the query %v", error)
+	}
+	rows, error := res.RowsAffected()
+	if error != nil {
+		log.Fatalf("unable to scan rows affected %v", error)
+	}
+	fmt.Printf("total rows affected %v", rows)
+	return rows
 }
 func getProducts() ([]models.Product, error) {
 	db := createConnection()
@@ -479,4 +648,57 @@ func updateCategory(category models.Category) int64 {
 	}
 	fmt.Printf("total rows affected %v", rows)
 	return rows
+}
+func createJwt(user models.User) (string, error) {
+	claims := jwt.MapClaims{
+		"expiresAt": 15000,
+		"email":     user.Email,
+	}
+	secret := os.Getenv("JWT_SECRET")
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(secret))
+}
+
+func JwtAuth(foo http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tokenString := r.Header.Get("jwt")
+		token, err := validJwt(tokenString)
+		if err != nil {
+			permissionDenied(w)
+			return
+		}
+		if !token.Valid {
+			permissionDenied(w)
+			return
+		}
+		foo(w, r)
+	}
+}
+func validJwt(tokenString string) (*jwt.Token, error) {
+	secret := os.Getenv("JWT_SECRET")
+	return jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(secret), nil
+	})
+}
+func validPassword(encPw, pw string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(encPw), []byte(pw)) == nil
+}
+func validEmail(email string) bool {
+	if !strings.ContainsAny(email, "@") {
+		return false
+	} else {
+		return true
+	}
+}
+func permissionDenied(w http.ResponseWriter) {
+	w.Header().Add("Content-Type", "application/json")
+	w.WriteHeader(403)
+	res := response{
+		ID:      403,
+		Message: "permission denied",
+	}
+	json.NewEncoder(w).Encode(res)
 }
