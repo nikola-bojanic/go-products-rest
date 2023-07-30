@@ -2,6 +2,10 @@ package models
 
 import "time"
 
+/*
+to do
+make product and category request and response for creating/updating product/category
+*/
 type User struct {
 	Id        int       `json:"userId"`
 	FirstName string    `json:"first_name"`
@@ -30,6 +34,19 @@ type Category struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+type CategoryRequest struct {
+	Name string `json:"categoryName"`
+}
+
+type ProductRequest struct {
+	Name             string   `json:"name"`
+	ShortDescription string   `json:"shortDescription"`
+	Description      string   `json:"description"`
+	Price            float32  `json:"price"`
+	Quantity         int      `json:"quantity"`
+	Category         Category `json:"category"`
+}
+
 type LoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -39,7 +56,7 @@ type LoginResponse struct {
 	Token string `json:"jwt"`
 }
 
-type UpdateRequest struct {
+type UserRequest struct {
 	FirstName string `json:"first_name"`
 	LastName  string `json:"last_name"`
 }

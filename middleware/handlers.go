@@ -40,385 +40,233 @@ func createConnection() *sql.DB {
 	fmt.Println("successfully connected to postgres")
 	return db
 }
+
 func GetProducts(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	products, error := getProducts()
-	if error != nil {
-		log.Fatalf("unable to fetch products %v", error)
+	products, err := getProducts()
+	if err != nil {
+		requestError(w, err, response{ID: int64(http.StatusBadRequest), Message: "unable to fetch the products"})
+		return
 	}
-	w.WriteHeader(200)
-	json.NewEncoder(w).Encode(products)
+	writeJson(w, http.StatusOK, products)
 }
+
 func GetProduct(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	params := mux.Vars(r)
-	id, error := strconv.Atoi(params["id"])
-	if error != nil {
-		log.Fatalf("unable to parse product id %v", error)
+	id, err := getId(w, r)
+	if err != nil {
+		return
 	}
-	product, error := getProduct(int64(id))
-	if error != nil {
-		log.Fatalf("unable to fetch product %v", error)
+	product, err := getProduct(int64(id))
+	if err != nil {
+		requestError(w, err, response{ID: int64(http.StatusBadRequest), Message: "unable to fetch the product"})
+		return
 	}
 	if product.ProductId == 0 {
-		res := response{
-			ID:      404,
-			Message: "Not found",
-		}
-		w.WriteHeader(404)
-		json.NewEncoder(w).Encode(res)
+		writeJson(w, http.StatusNotFound, response{ID: int64(http.StatusNotFound), Message: "product not found"})
 	} else {
-		w.WriteHeader(200)
-		json.NewEncoder(w).Encode(product)
+		writeJson(w, http.StatusOK, product)
 	}
 }
+
 func CreateProduct(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	var product models.Product
-	error := json.NewDecoder(r.Body).Decode(&product)
-	if error != nil {
-		log.Fatalf("unable to decode request body %v", error)
+	var req models.ProductRequest
+	if err := readJson(w, r, &req); err != nil {
+		return
 	}
-	if product.ProductId != 0 {
-		res := response{
-			ID:      400,
-			Message: "creating products with existing ID's not allowed",
-		}
-		w.WriteHeader(400)
-		json.NewEncoder(w).Encode(res)
+	categoryExisting, err := getCategory(int64(req.Category.Id))
+	if err != nil {
+		requestError(w, err, response{ID: int64(http.StatusBadRequest), Message: "unable to check if category exists"})
+		return
+	}
+	if categoryExisting.Id == 0 {
+		writeJson(w, http.StatusNotFound, response{ID: int64(http.StatusNotFound), Message: "category with that ID doesn't exist"})
 	} else {
-		categoryExisting, error := getCategory(int64(product.Category.Id))
-		if error != nil {
-			log.Fatalf("unable to check if category exists %v", error)
-		}
-		if categoryExisting.Id == 0 {
-			res := response{
-				ID:      404,
-				Message: "category with that ID doesn't exist",
-			}
-			w.WriteHeader(404)
-			json.NewEncoder(w).Encode(res)
-		} else {
-			id := createProduct(product)
-			res := response{
-				ID:      id,
-				Message: "inserted a product",
-			}
-			json.NewEncoder(w).Encode(res)
-		}
+		id := createProduct(req)
+		writeJson(w, http.StatusOK, response{ID: id, Message: "inserted a product"})
 	}
 }
+
 func DeleteProduct(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	params := mux.Vars(r)
-	id, error := strconv.Atoi(params["id"])
-	if error != nil {
-		log.Fatalf("unable to parse id %v", error)
+	id, err := getId(w, r)
+	if err != nil {
+		return
 	}
 	prodId := deleteProduct(int64(id))
-	msg1 := fmt.Sprintf("product deleted successfully. total rows affected %v", prodId)
-	msg2 := fmt.Sprintf("could not find a project with an id of : %v. total rows affected %v", id, prodId)
 	if prodId == 0 {
-		res := response{
-			ID:      404,
-			Message: msg2,
-		}
-		w.WriteHeader(404)
-		json.NewEncoder(w).Encode(res)
+		msg := fmt.Sprintf("could not find a product with an id of : %v. total rows affected %v", id, prodId)
+		writeJson(w, http.StatusNotFound, response{ID: int64(prodId), Message: msg})
 	} else {
-		res := response{
-			ID:      int64(prodId),
-			Message: msg1,
-		}
-		w.WriteHeader(204)
-		json.NewEncoder(w).Encode(res)
+		msg := fmt.Sprintf("product deleted successfully. total rows affected %v", prodId)
+		writeJson(w, http.StatusNoContent, response{ID: int64(prodId), Message: msg})
 	}
 }
+
 func UpdateProduct(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	params := mux.Vars(r)
-	id, error := strconv.Atoi(params["id"])
-	if error != nil {
-		log.Fatalf("unable to parse id %v", error)
-	}
-	var product models.Product
-	error = json.NewDecoder(r.Body).Decode(&product)
-	if error != nil {
-		log.Fatalf("unable to decode request body %v", error)
-	}
-	msg2 := fmt.Sprintf("path variable %v not equal to product id %v", id, product.ProductId)
-	exists, error := getProduct(int64(product.ProductId))
-	if error != nil {
-		log.Fatalf("unable to check if product exists %v", error)
-	}
-	if id != product.ProductId {
-		res := response{
-			ID:      400,
-			Message: msg2,
-		}
-		w.WriteHeader(400)
-		json.NewEncoder(w).Encode(res)
-	} else if exists.ProductId == 0 {
-		res := response{
-			ID:      404,
-			Message: "product with that ID doesn't exist",
-		}
-		w.WriteHeader(404)
-		json.NewEncoder(w).Encode(res)
+	id, err := getId(w, r)
+	if err != nil {
 		return
+	}
+	var req models.ProductRequest
+	if err := readJson(w, r, &req); err != nil {
+		return
+	}
+	exists, err := getProduct(int64(id))
+	if err != nil {
+		requestError(w, err, response{ID: int64(http.StatusBadRequest), Message: "unable to check if product exists"})
+		return
+	}
+	if exists.ProductId == 0 {
+		writeJson(w, http.StatusNotFound, response{ID: int64(id), Message: "product with that ID doesn't exist"})
 	} else {
-		categoryExisting, error := getCategory(int64(product.Category.Id))
-		if error != nil {
-			log.Fatalf("unable to check if category exists %v", error)
+		categoryExisting, err := getCategory(int64(req.Category.Id))
+		if err != nil {
+			requestError(w, err, response{ID: int64(http.StatusBadRequest), Message: "unable to check if category exists"})
+			return
 		}
 		if categoryExisting.Id == 0 {
-			res := response{
-				ID:      404,
-				Message: "Category with that ID doesn't exist",
-			}
-			w.WriteHeader(404)
-			json.NewEncoder(w).Encode(res)
+			writeJson(w, http.StatusNotFound, response{ID: int64(id), Message: "category with that ID doesn't exist"})
 		} else {
-			rows := updateProduct(product)
-			msg2 := fmt.Sprintf("product successfully updated, rows affected %v", rows)
-			res := response{
-				ID:      int64(id),
-				Message: msg2,
-			}
-			w.WriteHeader(200)
-			json.NewEncoder(w).Encode(res)
+			rows := updateProduct(req, int64(id))
+			msg := fmt.Sprintf("product successfully updated, rows affected %v", rows)
+			writeJson(w, http.StatusOK, response{ID: int64(id), Message: msg})
 		}
 	}
 }
+
 func GetCategories(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	categories, error := getCategories()
-	if error != nil {
-		log.Fatalf("unable to fetch categories %v", error)
+	categories, err := getCategories()
+	if err != nil {
+		requestError(w, err, response{ID: int64(http.StatusBadRequest), Message: "unable to fetch the categories"})
+		return
 	}
-	w.WriteHeader(200)
-	json.NewEncoder(w).Encode(categories)
+	writeJson(w, http.StatusOK, categories)
 }
+
 func GetCategory(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	params := mux.Vars(r)
-	id, error := strconv.Atoi(params["id"])
-	if error != nil {
-		log.Fatalf("unable to parse category id %v", error)
+	id, err := getId(w, r)
+	if err != nil {
+		return
 	}
-	category, error := getCategory(int64(id))
-	if error != nil {
-		log.Fatalf("unable to fetch category %v", error)
+	category, err := getCategory(int64(id))
+	if err != nil {
+		requestError(w, err, response{ID: int64(http.StatusBadRequest), Message: "unable to fetch the category"})
+		return
 	}
 	if category.Id == 0 {
-		res := response{
-			ID:      404,
-			Message: "Not found",
-		}
-		w.WriteHeader(404)
-		json.NewEncoder(w).Encode(res)
+		writeJson(w, http.StatusNotFound, response{ID: int64(http.StatusNotFound), Message: "category not found"})
 	} else {
-		w.WriteHeader(200)
-		json.NewEncoder(w).Encode(category)
+		writeJson(w, http.StatusOK, category)
 	}
 }
+
 func CreateCategory(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	var category models.Category
-	error := json.NewDecoder(r.Body).Decode(&category)
-	if error != nil {
-		log.Fatalf("unable to decode request body %v", error)
+	var req models.CategoryRequest
+	if err := readJson(w, r, &req); err != nil {
+		return
 	}
-	if category.Id != 0 {
-		res := response{
-			ID:      400,
-			Message: "creating categories with existing ID's not allowed",
-		}
-		w.WriteHeader(400)
-		json.NewEncoder(w).Encode(res)
-	} else {
-		id := createCategory(category)
-		res := response{
-			ID:      id,
-			Message: "inserted a category",
-		}
-		json.NewEncoder(w).Encode(res)
-	}
+	id := createCategory(req)
+	writeJson(w, http.StatusOK, response{ID: id, Message: "inserted a category"})
 }
+
 func DeleteCategory(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	params := mux.Vars(r)
-	id, error := strconv.Atoi(params["id"])
-	if error != nil {
-		log.Fatalf("unable to parse id %v", error)
+	id, err := getId(w, r)
+	if err != nil {
+		return
 	}
 	categoryId := deleteCategory(int64(id))
-	msg1 := fmt.Sprintf("category deleted successfully. total rows affected %v", categoryId)
-	msg2 := fmt.Sprintf("could not find a category with an id of : %v. total rows affected %v", id, categoryId)
 	if categoryId == 0 {
-		res := response{
-			ID:      404,
-			Message: msg2,
-		}
-		w.WriteHeader(404)
-		json.NewEncoder(w).Encode(res)
+		msg := fmt.Sprintf("could not find a category with an id of : %v. total rows affected %v", id, categoryId)
+		writeJson(w, http.StatusNotFound, response{ID: int64(http.StatusNotFound), Message: msg})
 	} else {
-		res := response{
-			ID:      int64(categoryId),
-			Message: msg1,
-		}
-		w.WriteHeader(204)
-		json.NewEncoder(w).Encode(res)
+		msg := fmt.Sprintf("category deleted successfully. total rows affected %v", categoryId)
+		writeJson(w, http.StatusNoContent, response{ID: int64(categoryId), Message: msg})
 	}
 }
+
 func UpdateCategory(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	params := mux.Vars(r)
-	id, error := strconv.Atoi(params["id"])
-	if error != nil {
-		log.Fatalf("unable to parse id %v", error)
+	id, err := getId(w, r)
+	if err != nil {
+		return
 	}
-	var category models.Category
-	error = json.NewDecoder(r.Body).Decode(&category)
-	if error != nil {
-		log.Fatalf("unable to decode request body %v", error)
+	var req models.CategoryRequest
+	if err := readJson(w, r, &req); err != nil {
+		return
 	}
-	msg2 := fmt.Sprintf("path variable %v not equal to category id %v", id, category.Id)
-	exists, error := getCategory(int64(category.Id))
-	if error != nil {
-		log.Fatalf("unable to check if category exists %v", error)
-	}
-	if id != category.Id {
-		res := response{
-			ID:      400,
-			Message: msg2,
-		}
-		w.WriteHeader(400)
-		json.NewEncoder(w).Encode(res)
-	} else if exists.Id == 0 {
-		res := response{
-			ID:      404,
-			Message: "category with that ID doesn't exist",
-		}
-		w.WriteHeader(404)
-		json.NewEncoder(w).Encode(res)
-	} else {
-		rows := updateCategory(category)
-		msg2 := fmt.Sprintf("category successfully updated, rows affected %v", rows)
-		res := response{
-			ID:      int64(id),
-			Message: msg2,
-		}
-		w.WriteHeader(200)
-		json.NewEncoder(w).Encode(res)
-	}
-}
-func UpdateUser(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	params := mux.Vars(r)
-	id, error := strconv.Atoi(params["id"])
-	if error != nil {
-		log.Fatalf("unable to parse id %v", error)
-	}
-	var req models.UpdateRequest
-	if error := json.NewDecoder(r.Body).Decode(&req); error != nil {
-		log.Fatalf("unable to decode request body %v", error)
-	}
-	exists, error := getUserById(int64(id))
-	if error != nil {
-		log.Fatalf("unable to fetch user %v", error)
+	exists, err := getCategory(int64(id))
+	if err != nil {
+		requestError(w, err, response{ID: int64(http.StatusBadRequest), Message: "cannot fetch category"})
+		return
 	}
 	if exists.Id == 0 {
-		res := response{
-			ID:      404,
-			Message: "user with that ID doesn't exist",
-		}
-		w.WriteHeader(404)
-		json.NewEncoder(w).Encode(res)
+		writeJson(w, http.StatusNotFound, response{ID: int64(http.StatusNotFound), Message: "category with that ID doesn't exist"})
+	} else {
+		rows := updateCategory(req, int64(id))
+		msg := fmt.Sprintf("category successfully updated, rows affected %v", rows)
+		writeJson(w, http.StatusOK, response{ID: int64(id), Message: msg})
+	}
+}
+
+func UpdateUser(w http.ResponseWriter, r *http.Request) {
+	id, err := getId(w, r)
+	if err != nil {
+		return
+	}
+	var req models.UserRequest
+	if err := readJson(w, r, &req); err != nil {
+		return
+	}
+	exists, err := getUserById(int64(id))
+	if err != nil {
+		requestError(w, err, response{ID: int64(http.StatusBadRequest), Message: "unable to fetch the user by id"})
+		return
+	}
+	if exists.Id == 0 {
+		writeJson(w, http.StatusNotFound, response{ID: int64(http.StatusNotFound), Message: "user with that ID doesn't exist"})
 	} else {
 		rows := updateUser(int64(id), req)
 		msg := fmt.Sprintf("user successfully updated, rows affected %v", rows)
-		res := response{
-			ID:      int64(id),
-			Message: msg,
-		}
-		w.WriteHeader(200)
-		json.NewEncoder(w).Encode(res)
+		writeJson(w, http.StatusOK, response{ID: int64(id), Message: msg})
 	}
-
 }
+
 func UserLogin(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	var req models.LoginRequest
-	if error := json.NewDecoder(r.Body).Decode(&req); error != nil {
-		log.Fatalf("unable to decode request body %v", error)
+	if err := readJson(w, r, &req); err != nil {
+		return
 	}
-	user, error := getUserByEmail(req.Email)
-	if error != nil {
-		log.Fatalf("unable to fetch user by email %v", error)
+	user, err := getUserByEmail(req.Email)
+	if err != nil {
+		requestError(w, err, response{ID: int64(http.StatusBadRequest), Message: "unable to fetch the user by email"})
+		return
 	}
 	if user.Email != req.Email || !validPassword(user.Password, req.Password) {
-		res := response{
-			ID:      400,
-			Message: "email or password are incorrect",
-		}
-		fmt.Printf("%s", user.Password)
-		w.WriteHeader(400)
-		json.NewEncoder(w).Encode(res)
-	} else {
-		token, err := createJwt(user)
-		if error != nil {
-			log.Fatalf("unable to generate jwt %v", err)
-		}
-		res := models.LoginResponse{
-			Token: token,
-		}
-		w.WriteHeader(200)
-		json.NewEncoder(w).Encode(res)
+		writeJson(w, http.StatusBadRequest, response{ID: int64(http.StatusBadRequest), Message: "email or password are incorrect"})
+		return
 	}
-
+	token, err := createJwt(user)
+	if err != nil {
+		requestError(w, err, response{ID: int64(http.StatusBadRequest), Message: "unable to generate jwt"})
+		return
+	}
+	res := models.LoginResponse{
+		Token: token,
+	}
+	writeJson(w, http.StatusOK, res)
 }
+
 func UserRegister(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	var user models.User
-	if error := json.NewDecoder(r.Body).Decode(&user); error != nil {
-		log.Fatalf("unable to decode request body %v", error)
+	if err := readJson(w, r, &user); err != nil {
+		return
 	}
-	if user.Id != 0 {
-		res := response{
-			ID:      400,
-			Message: "creating users with existing ID's not allowed",
-		}
-		w.WriteHeader(400)
-		json.NewEncoder(w).Encode(res)
-	} else if !validEmail(user.Email) {
-		w.WriteHeader(400)
-		res := response{
-			ID:      400,
-			Message: "email not valid",
-		}
-		json.NewEncoder(w).Encode(res)
+	if !validEmail(user.Email) {
+		writeJson(w, http.StatusBadRequest, response{ID: int64(http.StatusBadRequest), Message: "email not valid"})
 	} else if existing, _ := getUserByEmail(user.Email); existing.Id != 0 {
-		w.WriteHeader(400)
-		res := response{
-			ID:      400,
-			Message: "user already exists",
-		}
-		json.NewEncoder(w).Encode(res)
+		writeJson(w, http.StatusBadRequest, response{ID: int64(http.StatusBadRequest), Message: "user already exists"})
 	} else if len(user.Password) < 1 {
-		w.WriteHeader(400)
-		res := response{
-			ID:      400,
-			Message: "password too short",
-		}
-		json.NewEncoder(w).Encode(res)
+		writeJson(w, http.StatusBadRequest, response{ID: int64(http.StatusBadRequest), Message: "password too short"})
 	} else {
 		id := createUser(user)
-		res := response{
-			ID:      id,
-			Message: "registration successful",
-		}
-		json.NewEncoder(w).Encode(res)
+		writeJson(w, http.StatusOK, response{ID: id, Message: "registration successful"})
 	}
 }
 
@@ -433,6 +281,7 @@ func createUser(user models.User) int64 {
 	}
 	return id
 }
+
 func getUserById(id int64) (models.User, error) {
 	db := createConnection()
 	defer db.Close()
@@ -442,7 +291,7 @@ func getUserById(id int64) (models.User, error) {
 	error := row.Scan(&user.Id, &user.FirstName, &user.LastName, &user.Email, &user.Password, &user.CreatedAt)
 	switch error {
 	case sql.ErrNoRows:
-		return user, nil
+		return user, error
 	case nil:
 		return user, nil
 	default:
@@ -450,6 +299,7 @@ func getUserById(id int64) (models.User, error) {
 	}
 	return user, error
 }
+
 func getUserByEmail(email string) (models.User, error) {
 	db := createConnection()
 	defer db.Close()
@@ -467,7 +317,8 @@ func getUserByEmail(email string) (models.User, error) {
 	}
 	return user, error
 }
-func updateUser(id int64, req models.UpdateRequest) int64 {
+
+func updateUser(id int64, req models.UserRequest) int64 {
 	db := createConnection()
 	defer db.Close()
 	sqlStatement := `UPDATE users SET first_name = $2, last_name = $3 WHERE id = $1`
@@ -482,6 +333,7 @@ func updateUser(id int64, req models.UpdateRequest) int64 {
 	fmt.Printf("total rows affected %v", rows)
 	return rows
 }
+
 func getProducts() ([]models.Product, error) {
 	db := createConnection()
 	defer db.Close()
@@ -505,6 +357,7 @@ func getProducts() ([]models.Product, error) {
 	}
 	return products, error
 }
+
 func getProduct(id int64) (models.Product, error) {
 	db := createConnection()
 	defer db.Close()
@@ -529,17 +382,19 @@ func getProduct(id int64) (models.Product, error) {
 	}
 	return product, error
 }
-func createProduct(product models.Product) int64 {
+
+func createProduct(new models.ProductRequest) int64 {
 	db := createConnection()
 	defer db.Close()
 	sqlStatement := `INSERT INTO products (name, short_description, description, price, quantity, category_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`
 	var id int64
-	error := db.QueryRow(sqlStatement, product.Name, product.ShortDescription, product.Description, product.Price, product.Quantity, product.Category.Id).Scan(&id)
+	error := db.QueryRow(sqlStatement, new.Name, new.ShortDescription, new.Description, new.Price, new.Quantity, new.Category.Id).Scan(&id)
 	if error != nil {
 		log.Fatalf("unable to execute the query %v", error)
 	}
 	return id
 }
+
 func deleteProduct(id int64) int64 {
 	db := createConnection()
 	defer db.Close()
@@ -554,12 +409,13 @@ func deleteProduct(id int64) int64 {
 	}
 	return rows
 }
-func updateProduct(product models.Product) int64 {
+
+func updateProduct(update models.ProductRequest, id int64) int64 {
 	db := createConnection()
 	defer db.Close()
-	product.UpdatedAt = time.Now()
+	updatedAt := time.Now()
 	sqlStatement := `UPDATE products SET name = $2, short_description = $3, description = $4, price = $5, updated_at = $6, quantity = $7, category_id = $8 WHERE id = $1`
-	res, error := db.Exec(sqlStatement, product.ProductId, product.Name, product.ShortDescription, product.Description, product.Price, product.UpdatedAt, product.Quantity, product.Category.Id)
+	res, error := db.Exec(sqlStatement, id, update.Name, update.ShortDescription, update.Description, update.Price, updatedAt, update.Quantity, update.Category.Id)
 	if error != nil {
 		log.Fatalf("unable to execute the query %v", error)
 	}
@@ -570,6 +426,7 @@ func updateProduct(product models.Product) int64 {
 	fmt.Printf("total rows affected %v", rows)
 	return rows
 }
+
 func getCategories() ([]models.Category, error) {
 	db := createConnection()
 	defer db.Close()
@@ -590,6 +447,7 @@ func getCategories() ([]models.Category, error) {
 	}
 	return categories, error
 }
+
 func getCategory(id int64) (models.Category, error) {
 	db := createConnection()
 	defer db.Close()
@@ -608,17 +466,19 @@ func getCategory(id int64) (models.Category, error) {
 	}
 	return category, error
 }
-func createCategory(category models.Category) int64 {
+
+func createCategory(new models.CategoryRequest) int64 {
 	db := createConnection()
 	defer db.Close()
 	sqlStatement := `INSERT INTO categories (category_name) VALUES ($1) RETURNING category_id`
 	var id int64
-	error := db.QueryRow(sqlStatement, category.Name).Scan(&id)
+	error := db.QueryRow(sqlStatement, new.Name).Scan(&id)
 	if error != nil {
 		log.Fatalf("unable to execute the query %v", error)
 	}
 	return id
 }
+
 func deleteCategory(id int64) int64 {
 	db := createConnection()
 	defer db.Close()
@@ -633,12 +493,13 @@ func deleteCategory(id int64) int64 {
 	}
 	return rows
 }
-func updateCategory(category models.Category) int64 {
+
+func updateCategory(update models.CategoryRequest, id int64) int64 {
 	db := createConnection()
 	defer db.Close()
-	category.UpdatedAt = time.Now()
+	updatedAt := time.Now()
 	sqlStatement := `UPDATE categories SET category_name = $2, updated_at = $3 WHERE category_id = $1`
-	res, error := db.Exec(sqlStatement, category.Id, category.Name, category.UpdatedAt)
+	res, error := db.Exec(sqlStatement, id, update.Name, updatedAt)
 	if error != nil {
 		log.Fatalf("unable to execute the query %v", error)
 	}
@@ -649,6 +510,7 @@ func updateCategory(category models.Category) int64 {
 	fmt.Printf("total rows affected %v", rows)
 	return rows
 }
+
 func createJwt(user models.User) (string, error) {
 	claims := jwt.MapClaims{
 		"expiresAt": 15000,
@@ -659,21 +521,38 @@ func createJwt(user models.User) (string, error) {
 	return token.SignedString([]byte(secret))
 }
 
-func JwtAuth(foo http.HandlerFunc) http.HandlerFunc {
+func JwtAuth(handleFunc http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tokenString := r.Header.Get("jwt")
 		token, err := validJwt(tokenString)
 		if err != nil {
-			permissionDenied(w)
+			requestError(w, err, response{ID: int64(http.StatusForbidden), Message: "permission denied"})
 			return
 		}
 		if !token.Valid {
-			permissionDenied(w)
+			requestError(w, err, response{ID: int64(http.StatusForbidden), Message: "permission denied"})
 			return
 		}
-		foo(w, r)
+		// if we dont want to allow the user to change other accounts
+		//
+		// id, err := getId(w, r)
+		// if err != nil {
+		// 	return
+		// }
+		// user, err := getUserById(int64(id))
+		// if err != nil {
+		// 	requestError(w, err, response{ID: int64(http.StatusNotFound), Message: "cannot fetch the user"})
+		// 	return
+		// }
+		// claims := token.Claims.(jwt.MapClaims)
+		// if user.Email != claims["email"] {
+		// 	writeJson(w, http.StatusForbidden, response{ID: int64(http.StatusForbidden), Message: "permission denied"})
+		// 	return
+		// }
+		handleFunc(w, r)
 	}
 }
+
 func validJwt(tokenString string) (*jwt.Token, error) {
 	secret := os.Getenv("JWT_SECRET")
 	return jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
@@ -683,9 +562,11 @@ func validJwt(tokenString string) (*jwt.Token, error) {
 		return []byte(secret), nil
 	})
 }
+
 func validPassword(encPw, pw string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(encPw), []byte(pw)) == nil
 }
+
 func validEmail(email string) bool {
 	if !strings.ContainsAny(email, "@") {
 		return false
@@ -693,12 +574,32 @@ func validEmail(email string) bool {
 		return true
 	}
 }
-func permissionDenied(w http.ResponseWriter) {
-	w.Header().Add("Content-Type", "application/json")
-	w.WriteHeader(403)
-	res := response{
-		ID:      403,
-		Message: "permission denied",
+
+func getId(w http.ResponseWriter, r *http.Request) (int, error) {
+	params := mux.Vars(r)
+	id, err := strconv.Atoi(params["id"])
+	if err != nil {
+		requestError(w, err, response{ID: int64(http.StatusBadRequest), Message: "cannot parse given id"})
+		return id, err
 	}
+	return id, err
+}
+
+func readJson(w http.ResponseWriter, r *http.Request, v any) error {
+	error := json.NewDecoder(r.Body).Decode(&v)
+	if error != nil {
+		requestError(w, error, response{ID: int64(http.StatusBadRequest), Message: "cannot decode request body"})
+	}
+	return error
+}
+
+func writeJson(w http.ResponseWriter, status int, res any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(res)
+}
+
+func requestError(w http.ResponseWriter, err error, res response) {
+	fmt.Println(err)
+	writeJson(w, int(res.ID), res)
 }
