@@ -53,7 +53,7 @@ type LoginRequest struct {
 }
 
 type LoginResponse struct {
-	Token string `json:"jwt"`
+	Token string `json:"Authorization"`
 }
 
 type UserRequest struct {
