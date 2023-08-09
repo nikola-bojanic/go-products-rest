@@ -25,7 +25,7 @@ type response struct {
 }
 
 func createConnection() *sql.DB {
-	error := godotenv.Load(".env")
+	error := godotenv.Load("../.env")
 	if error != nil {
 		log.Fatal("error loading .env file")
 	}

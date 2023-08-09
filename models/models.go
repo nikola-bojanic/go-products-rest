@@ -2,10 +2,6 @@ package models
 
 import "time"
 
-/*
-to do
-make product and category request and response for creating/updating product/category
-*/
 type User struct {
 	Id        int       `json:"userId"`
 	FirstName string    `json:"first_name"`
