@@ -3,131 +3,103 @@ package middleware
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"go-products-rest/models"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 
 	"github.com/gorilla/mux"
 )
 
-func TestGetProducts(t *testing.T) {
-	r, err := http.NewRequest("GET", "/api/products", nil)
+func TestHandlers(t *testing.T) {
+
+	newProd := models.ProductRequest{Name: "Test", ShortDescription: "Test", Description: "Test", Price: 1.0, Quantity: 1, Category: models.Category{Id: 1}}
+	newProdEnc, _ := json.Marshal(newProd)
+	updProd := models.ProductRequest{Name: "Test 2", ShortDescription: "Test 2", Description: "Testing 2", Price: 2.0, Quantity: 2, Category: models.Category{Id: 2}}
+	updProdEnc, _ := json.Marshal(updProd)
+	newCat := models.CategoryRequest{Name: "Test"}
+	updCat := models.CategoryRequest{Name: "Test 2"}
+	newCatEnc, _ := json.Marshal(newCat)
+	updCatEnc, _ := json.Marshal(updCat)
+	var id string
+
+	tests := []models.TestData{
+		{Method: "GET", Url: "/api/products", Foo: GetProducts, WantStatus: 200, Body: nil, Vars: nil, HandlerName: "GetProducts"},
+		{Method: "GET", Url: "/api/products/{id}", Foo: GetProduct, WantStatus: 200, Body: nil, Vars: map[string]string{"id": "1"}, HandlerName: "GetProduct"},
+		{Method: "POST", Url: "/api/products", Foo: CreateProduct, WantStatus: 201, Body: bytes.NewReader(newProdEnc), Vars: nil, HandlerName: "CreateProduct"},
+		{Method: "PUT", Url: "/api/products/{id}", Foo: UpdateProduct, WantStatus: 200, Body: bytes.NewReader(updProdEnc), Vars: nil, HandlerName: "UpdateProduct"},
+		{Method: "DELETE", Url: "/api/products/{id}", Foo: DeleteProduct, WantStatus: 204, Body: nil, Vars: nil, HandlerName: "DeleteProduct"},
+		{Method: "GET", Url: "/api/categories", Foo: GetCategories, WantStatus: 200, Body: nil, Vars: nil, HandlerName: "GetCategories"},
+		{Method: "GET", Url: "/api/categories/{id}", Foo: GetCategory, WantStatus: 200, Body: nil, Vars: map[string]string{"id": "1"}, HandlerName: "GetCategory"},
+		{Method: "POST", Url: "/api/categories", Foo: CreateCategory, WantStatus: 201, Body: bytes.NewReader(newCatEnc), Vars: nil, HandlerName: "CreateCategory"},
+		{Method: "PUT", Url: "/api/categories/{id}", Foo: UpdateCategory, WantStatus: 200, Body: bytes.NewReader(updCatEnc), Vars: nil, HandlerName: "UpdateCategory"},
+		{Method: "DELETE", Url: "/api/categories/{id}", Foo: DeleteCategory, WantStatus: 204, Body: nil, Vars: nil, HandlerName: "DeleteCategory"},
+	}
+
+	for _, test := range tests {
+		if test.Method == "POST" {
+			w, err := checkHandler(test)
+			id = fetchId(w)
+			if err != nil {
+				t.Error(err)
+			}
+			continue
+		}
+		if test.Method == "DELETE" || test.Method == "PUT" {
+			test.Vars = map[string]string{"id": id}
+			_, err := checkHandler(test)
+			if err != nil {
+				t.Error(err)
+			}
+			continue
+		}
+		_, err := checkHandler(test)
+		if err != nil {
+			t.Error(err)
+		}
+	}
+}
+
+func TestUserHandlers(t *testing.T) {
+	user := models.LoginRequest{Email: "ab@a.com", Password: "a"}
+	userRegEnc, _ := json.Marshal(user)
+	// userUpdate := models.UserRequest{FirstName: "Marko", LastName: "Markovic"}
+	tests := []models.TestData{
+		{Method: "POST", Url: "/api/register", Foo: UserRegister, WantStatus: 200, Body: bytes.NewReader(userRegEnc), Vars: nil, HandlerName: "UserRegister"},
+		{Method: "POST", Url: "/api/login", Foo: UserLogin, WantStatus: 200, Body: bytes.NewReader(userRegEnc), Vars: nil, HandlerName: "GetProducts"},
+		// {Method: "PUT", Url: "/api/users/{id}", Foo: UpdateUser, WantStatus: 200, Body: bytes.NewReader(newProdEnc), Vars: nil, HandlerName: "CreateProduct"},
+	}
+	for _, test := range tests {
+		_, err := checkHandler(test)
+		if err != nil {
+			t.Error(err)
+		}
+	}
+}
+
+func fetchId(w *httptest.ResponseRecorder) string {
+	re := regexp.MustCompile("[0-9]+")
+	bodyNumbers := re.FindAllString(w.Body.String(), -1)
+	id := bodyNumbers[0]
+	return id
+}
+
+func checkHandler(data models.TestData) (*httptest.ResponseRecorder, error) {
+	r, err := http.NewRequest(data.Method, data.Url, data.Body)
 	if err != nil {
-		t.Fatal(err)
+		log.Fatal(err)
+	}
+	if data.Vars != nil {
+		r = mux.SetURLVars(r, data.Vars)
 	}
 	w := httptest.NewRecorder()
-	handler := http.HandlerFunc(GetProducts)
+	handler := http.HandlerFunc(data.Foo)
 	handler.ServeHTTP(w, r)
-	if status := w.Code; status != http.StatusOK {
-		t.Errorf("ERROR - Status code is %v, wanted status code is %v", status, http.StatusOK)
+	if status := w.Code; status != data.WantStatus {
+		err = fmt.Errorf("%v status code is %v, wanted status code %v", data.HandlerName, status, data.WantStatus)
 	}
-}
-
-func TestGetProduct(t *testing.T) {
-	r, err := http.NewRequest("GET", "/api/products/{id}", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	vars := map[string]string{
-		"id": "1",
-	}
-	r = mux.SetURLVars(r, vars)
-
-	w := httptest.NewRecorder()
-	handler := http.HandlerFunc(GetProduct)
-	handler.ServeHTTP(w, r)
-	if status := w.Code; status != http.StatusOK {
-		t.Errorf("ERROR - Status code is %v, wanted status code is %v", status, http.StatusOK)
-	}
-}
-func TestCreateProducts(t *testing.T) {
-	testP := models.ProductRequest{Name: "Test", ShortDescription: "Test", Description: "Test", Price: 1.0, Quantity: 1, Category: models.Category{Id: 1}}
-	marshallP, _ := json.Marshal(testP)
-	r, err := http.NewRequest("POST", "/api/products", bytes.NewReader(marshallP))
-	if err != nil {
-		t.Fatal(err)
-	}
-	w := httptest.NewRecorder()
-	handler := http.HandlerFunc(CreateProduct)
-	handler.ServeHTTP(w, r)
-	if status := w.Code; status != http.StatusOK {
-		t.Errorf("ERROR - Status code is %v, wanted status code is %v", status, http.StatusOK)
-	}
-}
-func TestDeleteProducts(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(DeleteProduct))
-	r, err := http.Get(server.URL)
-	if err != nil {
-		t.Error(err)
-	}
-	if r.StatusCode != http.StatusOK {
-		t.Errorf("expected 204, got %v", r.StatusCode)
-	}
-
-}
-func TestUpdateProducts(t *testing.T) {
-	testP := models.ProductRequest{Name: "Test", ShortDescription: "Test", Description: "Test", Price: 1.0, Quantity: 1, Category: models.Category{Id: 1}}
-	marshallP, _ := json.Marshal(testP)
-	r, err := http.NewRequest("PUT", "/api/products/{id}", bytes.NewReader(marshallP))
-	if err != nil {
-		t.Fatal(err)
-	}
-	w := httptest.NewRecorder()
-	vars := map[string]string{
-		"id": "1",
-	}
-	r = mux.SetURLVars(r, vars)
-	handler := http.HandlerFunc(UpdateProduct)
-	handler.ServeHTTP(w, r)
-	if status := w.Code; status != http.StatusOK {
-		t.Errorf("ERROR - Status code is %v, wanted status code is %v", status, http.StatusOK)
-	}
-}
-func TestGetCategories(t *testing.T) {
-	r, err := http.NewRequest("GET", "/api/categories", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	w := httptest.NewRecorder()
-	handler := http.HandlerFunc(GetCategories)
-	handler.ServeHTTP(w, r)
-	if status := w.Code; status != http.StatusOK {
-		t.Errorf("ERROR - Status code is %v, wanted status code is %v", status, http.StatusOK)
-	}
-}
-func TestGetCategory(t *testing.T) {
-	r, err := http.NewRequest("GET", "/api/categories/{id}", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	w := httptest.NewRecorder()
-	vars := map[string]string{
-		"id": "1",
-	}
-	r = mux.SetURLVars(r, vars)
-	handler := http.HandlerFunc(GetCategory)
-	handler.ServeHTTP(w, r)
-	if status := w.Code; status != http.StatusOK {
-		t.Errorf("ERROR - Status code is %v, wanted status code is %v", status, http.StatusOK)
-	}
-}
-
-func TestCreateCategory(t *testing.T) {
-
-}
-func TestDeleteCategory(t *testing.T) {
-
-}
-func TestUpdateCategory(t *testing.T) {
-
-}
-func TestUserLogin(t *testing.T) {
-
-}
-func TestUserRegister(t *testing.T) {
-
-}
-func TestUpdateUser(t *testing.T) {
-
+	return w, err
 }

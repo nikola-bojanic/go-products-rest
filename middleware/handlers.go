@@ -81,7 +81,7 @@ func CreateProduct(w http.ResponseWriter, r *http.Request) {
 		writeJson(w, http.StatusNotFound, response{ID: int64(http.StatusNotFound), Message: "category with that ID doesn't exist"})
 	} else {
 		id := createProduct(req)
-		writeJson(w, http.StatusOK, response{ID: id, Message: "inserted a product"})
+		writeJson(w, http.StatusCreated, response{ID: id, Message: "inserted a product"})
 	}
 }
 
@@ -164,7 +164,7 @@ func CreateCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := createCategory(req)
-	writeJson(w, http.StatusOK, response{ID: id, Message: "inserted a category"})
+	writeJson(w, http.StatusCreated, response{ID: id, Message: "inserted a category"})
 }
 
 func DeleteCategory(w http.ResponseWriter, r *http.Request) {
