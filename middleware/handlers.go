@@ -266,7 +266,7 @@ func UserRegister(w http.ResponseWriter, r *http.Request) {
 		writeJson(w, http.StatusBadRequest, response{ID: int64(http.StatusBadRequest), Message: "password too short"})
 	} else {
 		id := createUser(user)
-		writeJson(w, http.StatusOK, response{ID: id, Message: "registration successful"})
+		writeJson(w, http.StatusCreated, response{ID: id, Message: "registration successful"})
 	}
 }
 
@@ -494,6 +494,21 @@ func deleteCategory(id int64) int64 {
 	return rows
 }
 
+func deleteUser(id int64) int64 {
+	db := createConnection()
+	defer db.Close()
+	sqlStatement := `DELETE FROM users WHERE id = $1`
+	res, error := db.Exec(sqlStatement, id)
+	if error != nil {
+		log.Fatalf("unable to execute the query %v", error)
+	}
+	rows, error := res.RowsAffected()
+	if error != nil {
+		log.Fatalf("unable to get affected rows %v", error)
+	}
+	return rows
+}
+
 func updateCategory(update models.CategoryRequest, id int64) int64 {
 	db := createConnection()
 	defer db.Close()
@@ -523,7 +538,7 @@ func createJwt(user models.User) (string, error) {
 
 func JwtAuth(handleFunc http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		tokenString := r.Header.Get("jwt")
+		tokenString := r.Header.Get("Authorization")
 		token, err := validJwt(tokenString)
 		if err != nil {
 			requestError(w, err, response{ID: int64(http.StatusForbidden), Message: "permission denied"})

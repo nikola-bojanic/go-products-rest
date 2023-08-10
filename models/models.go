@@ -1,8 +1,6 @@
 package models
 
 import (
-	"io"
-	"net/http"
 	"time"
 )
 
@@ -59,14 +57,4 @@ type LoginResponse struct {
 type UserRequest struct {
 	FirstName string `json:"first_name"`
 	LastName  string `json:"last_name"`
-}
-
-type TestData struct {
-	HandlerName string
-	Method      string
-	Url         string
-	Foo         http.HandlerFunc
-	WantStatus  int
-	Body        io.Reader
-	Vars        map[string]string
 }
